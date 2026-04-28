@@ -155,7 +155,7 @@ Settings are saved locally through your userscript manager.
 
 ## Greasy Fork
 
-[Greasy Fork script page](https://greasyfork.org/en/scripts/575046-youtube-subtitle-fix-smart-line-wrapping-better-readability)
+[Greasy Fork script page](https://greasyfork.org/en/scripts/575816-youtube-search-sorter)
 
 ## Sponsor
 
