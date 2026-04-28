@@ -130,7 +130,7 @@ For best results:
 
 ## Version history
 
-### 1.0.0
+### 1.0.2
 
 - Added YouTube header button: **YT Sorter**
 - Added in-page settings panel
