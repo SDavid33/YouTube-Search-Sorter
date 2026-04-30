@@ -130,6 +130,18 @@ For best results:
 
 ## Version history
 
+### 1.0.3
+
+Bug fix: fixed YouTube SPA navigation issue.
+
+Changed the userscript match pattern from:
+@match https://www.youtube.com/results*
+
+to: @match https://www.youtube.com/*
+
+This lets the script load when YouTube is opened from the homepage, so it can detect the later search-results navigation without requiring an F5 refresh. The script still only activates its UI on /results pages via its internal isSearchPage() check.
+
+
 ### 1.0.2
 
 - Added YouTube header button: **YT Sorter**
