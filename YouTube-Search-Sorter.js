@@ -1,10 +1,10 @@
 // ==UserScript==
 // @name         YouTube Search Sorter
 // @namespace    https://github.com/SDavid33
-// @version      1.0.2
+// @version      1.0.3
 // @description  Builds a clean sorted view for loaded YouTube search videos by newest, oldest, or views.
 // @author       David33
-// @match        https://www.youtube.com/results*
+// @match        https://www.youtube.com/*
 // @grant        GM_setValue
 // @grant        GM_getValue
 // @grant        GM_notification
