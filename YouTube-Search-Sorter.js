@@ -1,13 +1,16 @@
 // ==UserScript==
 // @name         YouTube Search Sorter
 // @namespace    https://github.com/SDavid33
-// @version      1.0.4
+// @version      1.0.5
 // @description  Builds a clean sorted view for loaded YouTube search videos by newest, oldest, or views.
 // @author       David33
 // @match        https://www.youtube.com/*
 // @grant        GM_setValue
 // @grant        GM_getValue
 // @grant        GM_notification
+// @grant        GM_xmlhttpRequest
+// @grant        unsafeWindow
+// @connect      www.youtube.com
 // @run-at       document-idle
 // ==/UserScript==
 
@@ -41,6 +44,8 @@
     let clickLock = false;
     let lastVideoSignature = '';
     let lastUrl = location.href;
+    const publishedDateCache = new Map();
+    const publishedDateInFlight = new Set();
 
     function isSearchPage() {
         return location.hostname === 'www.youtube.com' && location.pathname === '/results';
@@ -97,6 +102,42 @@
             .replace(/\u00a0/g, ' ')
             .replace(/\s+/g, ' ')
             .trim();
+    }
+
+    function normalizeForMatch(text) {
+        return normalizeText(text)
+            .toLowerCase()
+            .normalize('NFD')
+            .replace(/[\u0300-\u036f]/g, '');
+    }
+
+    function parseLocalizedNumber(value) {
+        const raw = String(value || '').trim();
+
+        if (raw.includes(',') && raw.includes('.')) {
+            const lastComma = raw.lastIndexOf(',');
+            const lastDot = raw.lastIndexOf('.');
+
+            if (lastComma > lastDot) {
+                return Number(raw.replace(/\./g, '').replace(',', '.'));
+            }
+
+            return Number(raw.replace(/,/g, ''));
+        }
+
+        if (raw.includes(',')) {
+            if (/^\d{1,3}(,\d{3})+$/.test(raw)) {
+                return Number(raw.replace(/,/g, ''));
+            }
+
+            return Number(raw.replace(',', '.'));
+        }
+
+        if (/^\d{1,3}(\.\d{3})+$/.test(raw)) {
+            return Number(raw.replace(/\./g, ''));
+        }
+
+        return Number(raw);
     }
 
     function getSearchQuery() {
@@ -206,7 +247,7 @@
     }
 
     function looksLikeViews(text) {
-        const raw = normalizeText(text).toLowerCase();
+        const raw = normalizeForMatch(text);
 
         return (
             /views?/.test(raw) ||
@@ -214,20 +255,35 @@
             /조회수/.test(raw) ||
             /visualizaciones/.test(raw) ||
             /vistas/.test(raw) ||
+            /visualizzazioni/.test(raw) ||
             /vues/.test(raw) ||
             /aufrufe/.test(raw)
         );
     }
 
     function looksLikeAge(text) {
-        const raw = normalizeText(text).toLowerCase();
+        const raw = normalizeForMatch(text);
 
         return (
             /just now/.test(raw) ||
             /\d+\s+(second|minute|hour|day|week|month|year)s?\s+ago/.test(raw) ||
+            /hace\s+\d+(?:[.,]\d+)?\s+(segundo|minuto|hora|dia|semana|mes|ano)s?/.test(raw) ||
+            /\d+(?:[.,]\d+)?\s+(segundo|minuto|hora|dia|semana|mes|ano)s?\s+atras/.test(raw) ||
+            /\d+(?:[.,]\d+)?\s+(secondo|secondi|minuto|minuti|ora|giorno|settimana|mese|anno|ore|giorni|settimane|mesi|anni)\s+fa/.test(raw) ||
+            /il y a\s+\d+(?:[.,]\d+)?\s+(seconde|minute|heure|jour|semaine|mois|an|annee)s?/.test(raw) ||
+            /vor\s+\d+(?:[.,]\d+)?\s+(sekunde|minute|stunde|tag|woche|monat|jahr)(n|en|e)?/.test(raw) ||
             /\d+\s+(másodperc|perc|óra|nap|hét|hete|hónap|év|éve)/.test(raw) ||
             /\d+\s*(초|분|시간|일|주|개월|년)\s*전/.test(raw)
         );
+    }
+
+    function getAttributeCandidates(videoEl) {
+        return Array.from(videoEl.querySelectorAll('[aria-label], [title]'))
+            .flatMap(node => [
+                normalizeText(node.getAttribute('aria-label')),
+                normalizeText(node.getAttribute('title'))
+            ])
+            .filter(Boolean);
     }
 
     function getMetaPartsFromElement(videoEl) {
@@ -237,8 +293,11 @@
             .map(node => normalizeText(node.textContent))
             .filter(Boolean);
 
+        const attributeCandidates = getAttributeCandidates(videoEl);
+        const candidates = spanCandidates.concat(attributeCandidates);
+
         let viewsText = spanCandidates.find(looksLikeViews) || '';
-        let ageText = spanCandidates.find(looksLikeAge) || '';
+        let ageText = candidates.find(looksLikeAge) || '';
 
         const lines = String(videoEl.innerText || '')
             .split('\n')
@@ -260,7 +319,7 @@
     function parseAgeToMinutes(text) {
         if (!text) return Number.MAX_SAFE_INTEGER;
 
-        const raw = normalizeText(text).toLowerCase();
+        const raw = normalizeForMatch(text);
 
         if (
             raw.includes('just now') ||
@@ -272,7 +331,7 @@
 
         const en = raw.match(/(\d+(?:\.\d+)?)\s+(second|minute|hour|day|week|month|year)s?\s+ago/);
         if (en) {
-            const value = Number(en[1]);
+            const value = parseLocalizedNumber(en[1]);
             const unit = en[2];
 
             if (unit === 'second') return value / 60;
@@ -282,6 +341,76 @@
             if (unit === 'week') return value * 60 * 24 * 7;
             if (unit === 'month') return value * 60 * 24 * 30;
             if (unit === 'year') return value * 60 * 24 * 365;
+        }
+
+        const es = raw.match(/hace\s+(\d+(?:[.,]\d+)?)\s+(segundo|minuto|hora|dia|semana|mes|ano)s?/);
+        if (es) {
+            const value = parseLocalizedNumber(es[1]);
+            const unit = es[2];
+
+            if (unit === 'segundo') return value / 60;
+            if (unit === 'minuto') return value;
+            if (unit === 'hora') return value * 60;
+            if (unit === 'dia') return value * 60 * 24;
+            if (unit === 'semana') return value * 60 * 24 * 7;
+            if (unit === 'mes') return value * 60 * 24 * 30;
+            if (unit === 'ano') return value * 60 * 24 * 365;
+        }
+
+        const esAtras = raw.match(/(\d+(?:[.,]\d+)?)\s+(segundo|minuto|hora|dia|semana|mes|ano)s?\s+atras/);
+        if (esAtras) {
+            const value = parseLocalizedNumber(esAtras[1]);
+            const unit = esAtras[2];
+
+            if (unit === 'segundo') return value / 60;
+            if (unit === 'minuto') return value;
+            if (unit === 'hora') return value * 60;
+            if (unit === 'dia') return value * 60 * 24;
+            if (unit === 'semana') return value * 60 * 24 * 7;
+            if (unit === 'mes') return value * 60 * 24 * 30;
+            if (unit === 'ano') return value * 60 * 24 * 365;
+        }
+
+        const fr = raw.match(/il y a\s+(\d+(?:[.,]\d+)?)\s+(seconde|minute|heure|jour|semaine|mois|an|annee)s?/);
+        if (fr) {
+            const value = parseLocalizedNumber(fr[1]);
+            const unit = fr[2];
+
+            if (unit === 'seconde') return value / 60;
+            if (unit === 'minute') return value;
+            if (unit === 'heure') return value * 60;
+            if (unit === 'jour') return value * 60 * 24;
+            if (unit === 'semaine') return value * 60 * 24 * 7;
+            if (unit === 'mois') return value * 60 * 24 * 30;
+            if (unit === 'an' || unit === 'annee') return value * 60 * 24 * 365;
+        }
+
+        const de = raw.match(/vor\s+(\d+(?:[.,]\d+)?)\s+(sekunde|minute|stunde|tag|woche|monat|jahr)(n|en|e)?/);
+        if (de) {
+            const value = parseLocalizedNumber(de[1]);
+            const unit = de[2];
+
+            if (unit === 'sekunde') return value / 60;
+            if (unit === 'minute') return value;
+            if (unit === 'stunde') return value * 60;
+            if (unit === 'tag') return value * 60 * 24;
+            if (unit === 'woche') return value * 60 * 24 * 7;
+            if (unit === 'monat') return value * 60 * 24 * 30;
+            if (unit === 'jahr') return value * 60 * 24 * 365;
+        }
+
+        const it = raw.match(/(\d+(?:[.,]\d+)?)\s+(secondo|secondi|minuto|minuti|ora|giorno|settimana|mese|anno|ore|giorni|settimane|mesi|anni)\s+fa/);
+        if (it) {
+            const value = parseLocalizedNumber(it[1]);
+            const unit = it[2];
+
+            if (unit === 'secondo' || unit === 'secondi') return value / 60;
+            if (unit === 'minuto' || unit === 'minuti') return value;
+            if (unit === 'ora' || unit === 'ore') return value * 60;
+            if (unit === 'giorno' || unit === 'giorni') return value * 60 * 24;
+            if (unit === 'settimana' || unit === 'settimane') return value * 60 * 24 * 7;
+            if (unit === 'mese' || unit === 'mesi') return value * 60 * 24 * 30;
+            if (unit === 'anno' || unit === 'anni') return value * 60 * 24 * 365;
         }
 
         const hu = raw.match(/(\d+(?:[.,]\d+)?)\s+(másodperc|perc|óra|nap|hét|hete|hónap|év|éve)/);
@@ -318,11 +447,11 @@
     function parseViews(text) {
         if (!text) return 0;
 
-        const raw = normalizeText(text).toLowerCase().replace(/,/g, '');
+        const raw = normalizeForMatch(text);
 
-        const en = raw.match(/([\d.]+)\s*([kmb])?\s+views?/);
+        const en = raw.match(/([\d.,]+)\s*([kmb])?\s+views?/);
         if (en) {
-            const num = Number(en[1]);
+            const num = parseLocalizedNumber(en[1]);
             const suffix = en[2];
 
             if (suffix === 'k') return num * 1_000;
@@ -332,9 +461,9 @@
             return num;
         }
 
-        const compactEn = raw.match(/([\d.]+)\s*([kmb])\b/);
+        const compactEn = raw.match(/([\d.,]+)\s*([kmb])\b/);
         if (compactEn && looksLikeViews(raw)) {
-            const num = Number(compactEn[1]);
+            const num = parseLocalizedNumber(compactEn[1]);
             const suffix = compactEn[2];
 
             if (suffix === 'k') return num * 1_000;
@@ -344,7 +473,7 @@
 
         const hu = raw.match(/([\d.,]+)\s*([em])?\s+megtekint/i);
         if (hu) {
-            const num = Number(hu[1].replace(',', '.'));
+            const num = parseLocalizedNumber(hu[1]);
             const suffix = hu[2];
 
             if (suffix === 'e') return num * 1_000;
@@ -361,6 +490,18 @@
             if (suffix === '천') return num * 1_000;
             if (suffix === '만') return num * 10_000;
             if (suffix === '억') return num * 100_000_000;
+
+            return num;
+        }
+
+        const localizedViews = raw.match(/([\d.,]+)\s*([kmb])?\s+(visualizaciones|vistas|visualizzazioni|vues|aufrufe)/i);
+        if (localizedViews) {
+            const num = parseLocalizedNumber(localizedViews[1]);
+            const suffix = localizedViews[2];
+
+            if (suffix === 'k') return num * 1_000;
+            if (suffix === 'm') return num * 1_000_000;
+            if (suffix === 'b') return num * 1_000_000_000;
 
             return num;
         }
@@ -395,6 +536,216 @@
         return `${Math.round(views)} views`;
     }
 
+    function ageMinutesFromIsoDate(dateText) {
+        const isoDate = String(dateText || '').slice(0, 10);
+        const published = new Date(`${isoDate}T00:00:00Z`);
+        if (Number.isNaN(published.getTime())) return Number.MAX_SAFE_INTEGER;
+
+        return Math.max(0, Math.floor((Date.now() - published.getTime()) / 60000));
+    }
+
+    function formatPublishedDateText(dateText) {
+        const isoDate = String(dateText || '').slice(0, 10);
+        return isoDate ? `Published ${isoDate}` : '';
+    }
+
+    function getCachedPublishedDate(videoId) {
+        const cached = publishedDateCache.get(videoId);
+        if (!cached?.dateText && !cached?.views) return null;
+
+        return {
+            age: cached.dateText ? ageMinutesFromIsoDate(cached.dateText) : Number.MAX_SAFE_INTEGER,
+            ageText: formatPublishedDateText(cached.dateText),
+            views: cached.views || 0
+        };
+    }
+
+    function extractPublishedDateFromHtml(html) {
+        const patterns = [
+            /\\?"datePublished\\?"\s*:\s*\\?"(\d{4}-\d{2}-\d{2})\\?"/,
+            /\\?"publishDate\\?"\s*:\s*\\?"(\d{4}-\d{2}-\d{2})\\?"/,
+            /\\?"uploadDate\\?"\s*:\s*\\?"(\d{4}-\d{2}-\d{2})\\?"/,
+            /<meta[^>]+itemprop=["']datePublished["'][^>]+content=["'](\d{4}-\d{2}-\d{2})["']/i,
+            /<meta[^>]+content=["'](\d{4}-\d{2}-\d{2})["'][^>]+itemprop=["']datePublished["']/i,
+            /<meta[^>]+property=["']video:release_date["'][^>]+content=["'](\d{4}-\d{2}-\d{2})/i,
+            /<meta[^>]+content=["'](\d{4}-\d{2}-\d{2})[^"']*["'][^>]+property=["']video:release_date["']/i
+        ];
+
+        for (const pattern of patterns) {
+            const match = html.match(pattern);
+            if (match) return match[1];
+        }
+
+        return '';
+    }
+
+    function requestText(url) {
+        if (typeof GM_xmlhttpRequest === 'function') {
+            return new Promise((resolve, reject) => {
+                GM_xmlhttpRequest({
+                    method: 'GET',
+                    url,
+                    headers: {
+                        'Accept-Language': 'en-US,en;q=0.9'
+                    },
+                    onload: response => {
+                        if (response.status >= 200 && response.status < 300) {
+                            resolve(response.responseText || '');
+                        } else {
+                            reject(new Error(`HTTP ${response.status}`));
+                        }
+                    },
+                    onerror: () => reject(new Error('GM_xmlhttpRequest failed')),
+                    ontimeout: () => reject(new Error('GM_xmlhttpRequest timed out')),
+                    timeout: 12000
+                });
+            });
+        }
+
+        return fetch(url, {
+            credentials: 'include',
+            headers: {
+                'Accept-Language': 'en-US,en;q=0.9'
+            }
+        }).then(response => {
+            if (!response.ok) throw new Error(`HTTP ${response.status}`);
+            return response.text();
+        });
+    }
+
+    function requestJson(url, body) {
+        const payload = JSON.stringify(body);
+
+        if (typeof GM_xmlhttpRequest === 'function') {
+            return new Promise((resolve, reject) => {
+                GM_xmlhttpRequest({
+                    method: 'POST',
+                    url,
+                    data: payload,
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Accept-Language': 'en-US,en;q=0.9'
+                    },
+                    onload: response => {
+                        if (response.status >= 200 && response.status < 300) {
+                            try {
+                                resolve(JSON.parse(response.responseText || '{}'));
+                            } catch (error) {
+                                reject(error);
+                            }
+                        } else {
+                            reject(new Error(`HTTP ${response.status}`));
+                        }
+                    },
+                    onerror: () => reject(new Error('GM_xmlhttpRequest failed')),
+                    ontimeout: () => reject(new Error('GM_xmlhttpRequest timed out')),
+                    timeout: 12000
+                });
+            });
+        }
+
+        return fetch(url, {
+            method: 'POST',
+            credentials: 'include',
+            headers: {
+                'Content-Type': 'application/json',
+                'Accept-Language': 'en-US,en;q=0.9'
+            },
+            body: payload
+        }).then(response => {
+            if (!response.ok) throw new Error(`HTTP ${response.status}`);
+            return response.json();
+        });
+    }
+
+    function getInnertubeConfig() {
+        const pageWindow = typeof unsafeWindow !== 'undefined' ? unsafeWindow : window;
+        const fromYtcfg = key => {
+            try {
+                return pageWindow.ytcfg?.get?.(key) || window.ytcfg?.get?.(key) || '';
+            } catch {
+                return '';
+            }
+        };
+
+        const html = document.documentElement.innerHTML;
+        const find = pattern => html.match(pattern)?.[1] || '';
+
+        return {
+            apiKey: fromYtcfg('INNERTUBE_API_KEY') || find(/"INNERTUBE_API_KEY"\s*:\s*"([^"]+)"/),
+            clientName: fromYtcfg('INNERTUBE_CLIENT_NAME') || 'WEB',
+            clientVersion:
+                fromYtcfg('INNERTUBE_CLIENT_VERSION') ||
+                find(/"INNERTUBE_CLIENT_VERSION"\s*:\s*"([^"]+)"/) ||
+                '2.20250101.00.00'
+        };
+    }
+
+    async function fetchPlayerMetadata(videoId) {
+        const config = getInnertubeConfig();
+        if (!config.apiKey) return null;
+
+        const url = `https://www.youtube.com/youtubei/v1/player?key=${encodeURIComponent(config.apiKey)}`;
+        const data = await requestJson(url, {
+            context: {
+                client: {
+                    clientName: config.clientName,
+                    clientVersion: config.clientVersion,
+                    hl: 'en',
+                    gl: 'US'
+                }
+            },
+            videoId
+        });
+
+        const microformat = data?.microformat?.playerMicroformatRenderer || {};
+        const viewCount = Number(data?.videoDetails?.viewCount || microformat.viewCount || 0);
+
+        return {
+            dateText: microformat.publishDate || microformat.uploadDate || '',
+            views: Number.isFinite(viewCount) ? viewCount : 0
+        };
+    }
+
+    async function fetchPublishedDate(videoId) {
+        if (!videoId || publishedDateCache.has(videoId) || publishedDateInFlight.has(videoId)) return false;
+
+        publishedDateInFlight.add(videoId);
+
+        try {
+            const playerMetadata = await fetchPlayerMetadata(videoId);
+
+            if (playerMetadata?.dateText || playerMetadata?.views) {
+                publishedDateCache.set(videoId, playerMetadata);
+                return Boolean(playerMetadata.dateText || playerMetadata.views);
+            }
+
+            const url = `https://www.youtube.com/watch?v=${encodeURIComponent(videoId)}&hl=en&persist_hl=1&bpctr=9999999999`;
+            const html = await requestText(url);
+            const dateText = extractPublishedDateFromHtml(html);
+
+            publishedDateCache.set(videoId, dateText ? { dateText } : null);
+            return Boolean(dateText);
+        } catch (error) {
+            console.warn('[YouTube Search Sorter] Published date fallback failed:', videoId, error);
+            return false;
+        } finally {
+            publishedDateInFlight.delete(videoId);
+        }
+    }
+
+    async function fetchMissingPublishedDates(videos) {
+        const missing = videos
+            .filter(video => video.age === Number.MAX_SAFE_INTEGER || !video.views)
+            .filter(video => !publishedDateCache.has(video.id) && !publishedDateInFlight.has(video.id))
+            .slice(0, 24);
+
+        if (!missing.length) return false;
+
+        await Promise.all(missing.map(video => fetchPublishedDate(video.id)));
+        return true;
+    }
+
     function collectLoadedVideos() {
         const elements = Array.from(document.querySelectorAll('ytd-video-renderer'));
         const map = new Map();
@@ -409,8 +760,21 @@
             if (!url || !id || !title) continue;
 
             const meta = getMetaPartsFromElement(el);
-            const age = parseAgeToMinutes(meta.ageText || meta.combinedText);
-            const views = parseViews(meta.viewsText || meta.combinedText);
+            let age = parseAgeToMinutes(meta.ageText || meta.combinedText);
+            let ageText = meta.ageText;
+            const cachedPublishedDate = getCachedPublishedDate(id);
+
+            if (age === Number.MAX_SAFE_INTEGER && cachedPublishedDate) {
+                age = cachedPublishedDate.age;
+                ageText = cachedPublishedDate.ageText;
+            }
+
+            let views = parseViews(meta.viewsText || meta.combinedText);
+
+            if (!views && cachedPublishedDate?.views) {
+                views = cachedPublishedDate.views;
+            }
+
             const channel = getChannelFromElement(el);
             const thumb = getThumbFromElement(el, url);
 
@@ -424,7 +788,7 @@
                     age,
                     views,
                     viewsText: meta.viewsText,
-                    ageText: meta.ageText,
+                    ageText,
                     metadata: meta.combinedText
                 });
             }
@@ -1006,7 +1370,7 @@
         return card;
     }
 
-    function buildSortedView(silent = false) {
+    function buildSortedView(silent = false, allowDateFallback = true) {
         if (!isSearchPage()) {
             if (!silent) notify('Open a YouTube search results page first.');
             return;
@@ -1097,6 +1461,18 @@
             createSettingsPanel();
         } else {
             updateStatus();
+        }
+
+        const unknownViews = sorted.filter(v => !v.views).length;
+
+        if (allowDateFallback && (unknownDates > 0 || unknownViews > 0)) {
+            fetchMissingPublishedDates(sorted).then(changed => {
+                if (changed && document.getElementById(IDS.sortedBox)) {
+                    buildSortedView(true, true);
+                } else {
+                    updateStatus();
+                }
+            });
         }
     }
 
