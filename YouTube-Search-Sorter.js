@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         YouTube Search Sorter
 // @namespace    https://github.com/SDavid33
-// @version      1.0.3
+// @version      1.0.4
 // @description  Builds a clean sorted view for loaded YouTube search videos by newest, oldest, or views.
 // @author       David33
 // @match        https://www.youtube.com/*
@@ -464,6 +464,47 @@
         const style = document.createElement('style');
         style.id = IDS.style;
         style.textContent = `
+            #${IDS.topButton},
+            #${IDS.panel},
+            #${IDS.sortedBox} {
+                --ytss-surface: #ffffff;
+                --ytss-card: #f2f2f2;
+                --ytss-card-hover: #e9e9e9;
+                --ytss-chip: #f2f2f2;
+                --ytss-chip-hover: #e5e5e5;
+                --ytss-border: rgba(0,0,0,.12);
+                --ytss-text: #0f0f0f;
+                --ytss-muted: #606060;
+                --ytss-danger-bg: #f8d7da;
+                --ytss-danger-text: #0f0f0f;
+                --ytss-rank-bg: #d7ecff;
+                --ytss-rank-text: #065fd4;
+                --ytss-rank-border: rgba(6,95,212,.18);
+                --ytss-shadow: 0 10px 34px rgba(0,0,0,.16);
+            }
+
+            html[dark] #${IDS.topButton},
+            html[dark] #${IDS.panel},
+            html[dark] #${IDS.sortedBox},
+            body[dark] #${IDS.topButton},
+            body[dark] #${IDS.panel},
+            body[dark] #${IDS.sortedBox} {
+                --ytss-surface: #1f1f1f;
+                --ytss-card: #2b2b2b;
+                --ytss-card-hover: #333333;
+                --ytss-chip: #303030;
+                --ytss-chip-hover: #3f3f3f;
+                --ytss-border: rgba(255,255,255,.14);
+                --ytss-text: #f1f1f1;
+                --ytss-muted: #aaa;
+                --ytss-danger-bg: rgba(255, 70, 70, .18);
+                --ytss-danger-text: #f1f1f1;
+                --ytss-rank-bg: rgba(62,166,255,.22);
+                --ytss-rank-text: #8cccff;
+                --ytss-rank-border: rgba(140,204,255,.12);
+                --ytss-shadow: 0 10px 34px rgba(0,0,0,.55);
+            }
+
             #${IDS.topButton} {
                 display: inline-flex !important;
                 align-items: center !important;
@@ -473,8 +514,8 @@
                 margin-left: 0 !important;
                 margin-right: 10px !important;
                 border-radius: 18px !important;
-                background: var(--yt-spec-badge-chip-background, rgba(255,255,255,.1)) !important;
-                color: var(--yt-spec-text-primary, #fff) !important;
+                background: var(--ytss-chip) !important;
+                color: var(--ytss-text) !important;
                 font-family: Roboto, Arial, sans-serif !important;
                 font-size: 14px !important;
                 font-weight: 600 !important;
@@ -484,7 +525,7 @@
             }
 
             #${IDS.topButton}:hover {
-                background: var(--yt-spec-button-chip-background-hover, rgba(255,255,255,.18)) !important;
+                background: var(--ytss-chip-hover) !important;
             }
 
             #${IDS.fallbackButton} {
@@ -500,7 +541,7 @@
                 font-size: 13px !important;
                 font-weight: 800 !important;
                 cursor: pointer !important;
-                box-shadow: 0 8px 24px rgba(0,0,0,.45) !important;
+                box-shadow: 0 8px 24px rgba(0,0,0,.25) !important;
                 user-select: none !important;
                 pointer-events: auto !important;
             }
@@ -516,11 +557,11 @@
                 overflow-y: auto !important;
                 padding: 14px !important;
                 border-radius: 16px !important;
-                background: rgba(22, 22, 22, .98) !important;
-                border: 1px solid rgba(255,255,255,.18) !important;
-                color: #fff !important;
+                background: var(--ytss-surface) !important;
+                border: 1px solid var(--ytss-border) !important;
+                color: var(--ytss-text) !important;
                 font-family: Roboto, Arial, sans-serif !important;
-                box-shadow: 0 10px 34px rgba(0,0,0,.55) !important;
+                box-shadow: var(--ytss-shadow) !important;
                 box-sizing: border-box !important;
                 pointer-events: auto !important;
             }
@@ -542,8 +583,8 @@
                 height: 28px !important;
                 border-radius: 999px !important;
                 border: none !important;
-                background: rgba(255,255,255,.12) !important;
-                color: #fff !important;
+                background: var(--ytss-chip) !important;
+                color: var(--ytss-text) !important;
                 cursor: pointer !important;
                 font-size: 16px !important;
             }
@@ -551,7 +592,7 @@
             #${IDS.panel} .yt-ss-section {
                 margin-top: 12px !important;
                 padding-top: 12px !important;
-                border-top: 1px solid rgba(255,255,255,.1) !important;
+                border-top: 1px solid var(--ytss-border) !important;
             }
 
             #${IDS.panel} .yt-ss-section.no-border {
@@ -562,7 +603,7 @@
 
             #${IDS.panel} .yt-ss-label {
                 font-size: 12px !important;
-                color: #aaa !important;
+                color: var(--ytss-muted) !important;
                 margin-bottom: 7px !important;
                 font-weight: 700 !important;
             }
@@ -578,8 +619,8 @@
                 border: none !important;
                 border-radius: 999px !important;
                 padding: 8px 11px !important;
-                background: rgba(255,255,255,.13) !important;
-                color: #fff !important;
+                background: var(--ytss-chip) !important;
+                color: var(--ytss-text) !important;
                 cursor: pointer !important;
                 font-size: 12px !important;
                 font-weight: 650 !important;
@@ -593,16 +634,17 @@
 
             #${IDS.panel} button.danger,
             #${IDS.sortedBox} button.danger {
-                background: rgba(255, 70, 70, .18) !important;
+                background: var(--ytss-danger-bg) !important;
+                color: var(--ytss-danger-text) !important;
             }
 
             #${IDS.panel} .yt-ss-status {
                 margin-top: 12px !important;
                 padding: 8px 10px !important;
                 border-radius: 10px !important;
-                background: rgba(255,255,255,.08) !important;
+                background: var(--ytss-card) !important;
                 font-size: 12px !important;
-                color: #bbb !important;
+                color: var(--ytss-muted) !important;
                 line-height: 1.35 !important;
             }
 
@@ -629,9 +671,9 @@
                 margin: 12px 0 24px 0 !important;
                 padding: 16px !important;
                 border-radius: 18px !important;
-                background: rgba(25,25,25,.98) !important;
-                border: 1px solid rgba(255,255,255,.14) !important;
-                color: #fff !important;
+                background: var(--ytss-surface) !important;
+                border: 1px solid var(--ytss-border) !important;
+                color: var(--ytss-text) !important;
                 font-family: Roboto, Arial, sans-serif !important;
                 box-sizing: border-box !important;
             }
@@ -651,7 +693,7 @@
 
             #${IDS.sortedBox} .yt-ss-box-subtitle {
                 margin-top: 4px !important;
-                color: #aaa !important;
+                color: var(--ytss-muted) !important;
                 font-size: 12px !important;
             }
 
@@ -673,13 +715,13 @@
                 gap: 14px !important;
                 padding: 10px !important;
                 border-radius: 14px !important;
-                background: rgba(255,255,255,.055) !important;
-                color: #fff !important;
+                background: var(--ytss-card) !important;
+                color: var(--ytss-text) !important;
                 text-decoration: none !important;
             }
 
             #${IDS.sortedBox} .yt-ss-card:hover {
-                background: rgba(255,255,255,.09) !important;
+                background: var(--ytss-card-hover) !important;
             }
 
             #${IDS.sortedBox} .yt-ss-thumb {
@@ -687,20 +729,20 @@
                 aspect-ratio: 16 / 9 !important;
                 border-radius: 10px !important;
                 object-fit: cover !important;
-                background: #111 !important;
+                background: var(--ytss-chip) !important;
             }
 
             #${IDS.sortedBox} .yt-ss-video-title {
                 font-size: 16px !important;
                 line-height: 1.35 !important;
                 font-weight: 800 !important;
-                color: #fff !important;
+                color: var(--ytss-text) !important;
                 margin-bottom: 8px !important;
             }
 
             #${IDS.sortedBox} .yt-ss-meta {
                 font-size: 13px !important;
-                color: #aaa !important;
+                color: var(--ytss-muted) !important;
                 line-height: 1.45 !important;
             }
 
@@ -709,8 +751,9 @@
                 margin-right: 8px !important;
                 padding: 2px 7px !important;
                 border-radius: 999px !important;
-                background: rgba(62,166,255,.22) !important;
-                color: #8cccff !important;
+                background: var(--ytss-rank-bg) !important;
+                border: 1px solid var(--ytss-rank-border) !important;
+                color: var(--ytss-rank-text) !important;
                 font-size: 12px !important;
                 font-weight: 800 !important;
             }
