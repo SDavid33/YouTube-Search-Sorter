@@ -137,7 +137,6 @@ For best results:
 
 - Fixed the custom sorted results panel so it now matches both YouTube Light Theme and Dark Theme.
 - Improved the visibility of the result number badges in Light Theme.
-- Kept the script release version at `1.0.4`, based on the original stable `1.0.3` release.
 
 
 ### 1.0.3
