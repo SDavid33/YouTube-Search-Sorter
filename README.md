@@ -130,8 +130,16 @@ For best results:
 
 ## Version history
 
+## v1.0.5.
 
-## Bug Fixes
+
+- Fixed theme styling so the sorted results panel now fits both YouTube Light Theme and Dark Theme.
+- Improved the visibility of result number badges in Light Theme.
+- Fixed localized metadata handling for YouTube search results where views or upload dates could appear as `unknown`.
+- Added a fallback that retrieves structured YouTube video metadata when localized search result text cannot be parsed.
+- Improved support for non-English YouTube interfaces by using structured publish date and view count data where available.
+- Fallback publish dates are now shown in a clean `Published YYYY-MM-DD` format.
+
 
 ### v1.0.4
 
